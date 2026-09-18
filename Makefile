@@ -1,4 +1,4 @@
-STATICCHECK_VERSION := v0.8.0
+STATICCHECK_VERSION := v0.8.1
 STATICCHECK := $(shell go env GOPATH)/bin/staticcheck
 
 .PHONY: tools format lint test-build test build
