@@ -137,15 +137,25 @@ root of the embed and no deeper, so every `.sql` file it should see sits flat in
 
 A patch is identified by the number its name carries after the prefix, so
 `myapp-patches.0007-add-language` is version 7. The number is the only part recorded, which leaves
-the words after it free to say what the patch is for: renaming one cannot re-run it. Renumbering
-can, and a number is spent from the moment it reaches a live database. The number needs a hyphen
-after it, leading zeros are trimmed, and two names that trim to the same number stop the run
-rather than let one of them go quietly unapplied.
+the words after it free to say what the patch is for: renaming one cannot re-run it. The number
+needs a hyphen after it, leading zeros are trimmed, and two names that trim to the same number stop
+the run rather than let one of them go quietly unapplied.
+
+A database goes on from the highest version recorded in `db_version` and runs only the patches
+above it. A patch numbered below is skipped, which is not an error: `OnSkip` hears of it, and
+nothing else does. So a patch is never edited once it has run, never slipped in between two others,
+and its number is never given to another: each of those lands below a version some database already
+stands at, and there it never runs. A developer's database that ran an unmerged branch stands above
+the patches written after it in the same way, and skips them until it is rebuilt.
 
 A database with no rows in `db_version`, the table `ApplyPatches` creates for itself, is baselined
 to the latest version without a single body running. That is what lets a fresh install start
-current, and it is the sharp edge of the mechanism: a populated database that predates tory is
-declared current too, with every patch unrun. Adopt tory on one of those deliberately.
+current, and it is the sharp edge of the mechanism twice over. A fresh database never runs a patch,
+so a change to the shape goes in twice: as a patch for the databases already alive, and into the
+declared schema for the ones not yet created. And a populated database that predates tory is
+declared current too, with every patch unrun. Adopt tory on one of those deliberately: ship
+`ApplyPatches` with a first patch that changes nothing, and put the first real change in the patch
+after it, once every live database has been baselined.
 
 Everything runs in one transaction. A patch that fails leaves the database as it was and the run
 repeats from the top, so no body is ever applied twice on top of itself. What a body does have to
