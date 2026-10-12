@@ -162,6 +162,48 @@ repeats from the top, so no body is ever applied twice on top of itself. What a 
 survive is meeting its own change already made: a table created today from your declared schema
 already carries the column that patch 7 adds. Write `add column if not exists`.
 
+### Data migrations
+
+A patch is one SQL statement. A change to the data that needs Go — reading a body and writing what
+it derives, moving files to where the rows now say they are, going through your own write path so
+its invariants hold — is a data migration: a named Go function, run after the patches.
+
+```go
+m := tory.NewDataMigrations(tory.DataMigrationsOptions{
+	OnFinish: func(name, report string) { log.Println(name, report) },
+})
+m.Add("links-from-every-body", func(ctx context.Context) (string, error) {
+	n, err := deriveLinks(ctx, store)
+	return fmt.Sprintf("read %d bodies", n), err
+})
+
+if _, err := m.Apply(ctx, t); err != nil {
+	panic(err)
+}
+```
+
+The function takes nothing from tory but the context, so it closes over whatever it needs: your
+query layer, a file store, a client. What it returns besides the error is a line for the hooks to
+log.
+
+`Apply` runs the migrations in the order they were added, skips every name already recorded in
+`data_migrations`, a table it creates for itself, and records each one the moment it returns
+without an error. The first that fails stops the run: it stays unrecorded, the migrations after it
+do not start, and its error comes back from `Apply`, so the next run starts from it. A migration
+can therefore rely on everything added before it having finished. A blank or repeated name stops
+`Apply` before anything runs.
+
+A name is recorded once and for good, so a migration is never renamed after it has run, and its
+name is never given to another. There is no baseline: a fresh database runs every migration, and
+each one finds nothing to do. Write each one so that is cheap, and so that something it cannot do
+is an error, not an empty result: a migration that needs a file store and finds none configured
+returns successfully only when there is nothing to move.
+
+No transaction wraps a migration, so a long one can commit in batches of its own, and none wraps a
+migration together with its record. A process that dies between the two runs the migration again
+on the next start, so it has to survive meeting its own work already done. Nor does anything keep
+two processes calling `Apply` at once apart, so call it from one.
+
 ### Elsewhere
 
 Everything else — the full method set, what a savepoint does and does not hold, the error helpers —

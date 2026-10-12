@@ -18,7 +18,7 @@ func TestParse(t *testing.T) {
 	db := New(newPool(t))
 
 	require.NoError(t, db.Load(testFiles))
-	assert.Len(t, db.AllQueries(), 10)
+	assert.Len(t, db.AllQueries(), 12)
 
 	t.Run("remove comments", func(t *testing.T) {
 		q, err := db.Query("test-comments")

@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-//go:embed patches.sql
+//go:embed patches.sql data_migrations.sql
 var sqlFiles embed.FS
 
 type DBVersion struct {

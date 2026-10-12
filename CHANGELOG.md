@@ -16,6 +16,35 @@ can still ask something of you, up to and including reading your migrations agai
 schema. What a release asks is written in its own entry, so read the entry rather than judge by the
 number. Entries start at 2.0.0, the first release of the current API.
 
+## [2.4.0] - 2026-10-12
+
+### Added
+
+- Data migrations: named Go functions for the changes to data that one SQL statement cannot make,
+  such as moving files to where the rows now say they are. Upgrading asks nothing of you: a program
+  that does not call them works as before.
+
+  ```go
+  m := tory.NewDataMigrations(tory.DataMigrationsOptions{})
+  m.Add("links-from-every-body", func(ctx context.Context) (string, error) {
+  	return deriveLinks(ctx, store) // a line for your log saying what it did, and the error
+  })
+  applied, err := m.Apply(ctx, t) // t: your tory.Tory; applied: every migration recorded
+  ```
+
+  `Apply` runs the functions in the order they were added, and records each in a
+  `data_migrations` table as it returns. Call it after `ApplyPatches`, if you use patches, so the
+  functions see the current schema. The first that fails stops the run and comes back as the error,
+  unrecorded, so the next run starts from it. No transaction wraps a function, and a process that
+  dies between a function and its record runs it again, so write each one to be safe to run twice.
+  Two processes calling `Apply` at once can both run the same function, so call it from one. The
+  [Readme](https://github.com/botforge-pro/tory#data-migrations) has the rest.
+
+  If you already keep your own record of such functions in a table named `data_migrations`, with a
+  text `name` as its key and an `applied_at` timestamp, `Apply` takes it over as it stands and skips
+  every name in it. A table of that name holding anything else is yours to rename first: `Apply`
+  creates the table only if it is missing, and fails on one it cannot write to.
+
 ## [2.3.0] - 2026-09-10
 
 ### Changed
@@ -217,6 +246,7 @@ import "github.com/teamin-pro/tory/v2" // 2.0.0; see 2.1.0 above for where it li
   `ExecReturning`. Each is now a method of the same name on the connection and on the transaction,
   so the replacement is mechanical.
 
+[2.4.0]: https://github.com/botforge-pro/tory/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/botforge-pro/tory/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/botforge-pro/tory/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/botforge-pro/tory/compare/v2.0.0...v2.1.0

@@ -35,3 +35,12 @@ insert into test_savepoint (n) values (:n);
 
 -- name: test-count
 select count(*) from test_savepoint;
+
+-- name: test-drop-data-migrations
+drop table if exists data_migrations;
+
+-- name: test-create-data-migrations-refusing-a-name
+create table data_migrations (
+    name text not null primary key check (name <> 'refused'),
+    applied_at timestamptz not null default now()
+);
