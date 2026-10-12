@@ -39,6 +39,9 @@ select count(*) from test_savepoint;
 -- name: test-drop-data-migrations
 drop table if exists data_migrations;
 
+-- name: test-count-advisory-lock-waiters
+select count(*) from pg_locks where locktype = 'advisory' and not granted;
+
 -- name: test-create-data-migrations-refusing-a-name
 create table data_migrations (
     name text not null primary key check (name <> 'refused'),

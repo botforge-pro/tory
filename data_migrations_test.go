@@ -3,7 +3,9 @@ package tory
 import (
 	"context"
 	"errors"
+	syncatomic "sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -85,6 +87,42 @@ func TestDataMigrations_AMigrationThatCannotBeRecordedStopsTheRun(t *testing.T) 
 	require.ErrorContains(t, err, "record data migration `refused`")
 	assert.Equal(t, []string{"refused"}, ran, "a migration after one that went unrecorded ran")
 	assert.Empty(t, applied)
+}
+
+func TestDataMigrations_TwoRunsAtOnceDoAMigrationOnce(t *testing.T) {
+	db := dbWithoutDataMigrations(t)
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	var runs syncatomic.Int32
+	m := NewDataMigrations(DataMigrationsOptions{})
+	m.Add("slow", func(context.Context) (string, error) {
+		runs.Add(1)
+		started <- struct{}{}
+		<-release
+		return "", nil
+	})
+
+	first := make(chan error, 1)
+	go func() {
+		_, err := m.Apply(t.Context(), db)
+		first <- err
+	}()
+	<-started
+	second := make(chan error, 1)
+	go func() {
+		_, err := m.Apply(t.Context(), db)
+		second <- err
+	}()
+	require.Eventually(t, func() bool {
+		waiting, err := db.Scalar[int](t.Context(), "test-count-advisory-lock-waiters", nil)
+		return err == nil && waiting == 1
+	}, 5*time.Second, 10*time.Millisecond, "the second run never queued behind the first")
+	close(release)
+
+	require.NoError(t, <-first)
+	require.NoError(t, <-second)
+	assert.Equal(t, int32(1), runs.Load(),
+		"two instances starting during one deploy both ran the migration")
 }
 
 func TestDataMigrations_HooksHearEveryMigration(t *testing.T) {

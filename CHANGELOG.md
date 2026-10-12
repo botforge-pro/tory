@@ -20,30 +20,13 @@ number. Entries start at 2.0.0, the first release of the current API.
 
 ### Added
 
-- Data migrations: named Go functions for the changes to data that one SQL statement cannot make,
-  such as moving files to where the rows now say they are. Upgrading asks nothing of you: a program
-  that does not call them works as before.
+- Data migrations: named Go functions, run in order and recorded one by one, for the changes to
+  data that one SQL statement cannot make. The
+  [Readme](https://github.com/botforge-pro/tory#data-migrations) shows how to write and run them.
 
-  ```go
-  m := tory.NewDataMigrations(tory.DataMigrationsOptions{})
-  m.Add("links-from-every-body", func(ctx context.Context) (string, error) {
-  	return deriveLinks(ctx, store) // a line for your log saying what it did, and the error
-  })
-  applied, err := m.Apply(ctx, t) // t: your tory.Tory; applied: every migration recorded
-  ```
-
-  `Apply` runs the functions in the order they were added, and records each in a
-  `data_migrations` table as it returns. Call it after `ApplyPatches`, if you use patches, so the
-  functions see the current schema. The first that fails stops the run and comes back as the error,
-  unrecorded, so the next run starts from it. No transaction wraps a function, and a process that
-  dies between a function and its record runs it again, so write each one to be safe to run twice.
-  Two processes calling `Apply` at once can both run the same function, so call it from one. The
-  [Readme](https://github.com/botforge-pro/tory#data-migrations) has the rest.
-
-  If you already keep your own record of such functions in a table named `data_migrations`, with a
-  text `name` as its key and an `applied_at` timestamp, `Apply` takes it over as it stands and skips
-  every name in it. A table of that name holding anything else is yours to rename first: `Apply`
-  creates the table only if it is missing, and fails on one it cannot write to.
+  Upgrading asks nothing of you unless your database already has a table named `data_migrations`.
+  If it keeps a text `name` as its key and an `applied_at` timestamp, it is taken over as it stands.
+  If it holds anything else, rename it before your first call to `Apply`.
 
 ## [2.3.0] - 2026-09-10
 

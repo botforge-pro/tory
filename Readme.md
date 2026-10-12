@@ -191,7 +191,13 @@ log.
 without an error. The first that fails stops the run: it stays unrecorded, the migrations after it
 do not start, and its error comes back from `Apply`, so the next run starts from it. A migration
 can therefore rely on everything added before it having finished. A blank or repeated name stops
-`Apply` before anything runs.
+`Apply` before anything runs. What `Apply` returns is every migration recorded so far, from earlier
+runs too.
+
+A run holds a database lock from start to end, so two instances starting during one deploy do not
+both run a migration: the second waits, then skips what the first recorded. The lock keeps one
+connection of the pool for the whole run, so a pool of one connection leaves a migration that
+queries through it waiting forever.
 
 A name is recorded once and for good, so a migration is never renamed after it has run, and its
 name is never given to another. There is no baseline: a fresh database runs every migration, and
@@ -201,8 +207,11 @@ returns successfully only when there is nothing to move.
 
 No transaction wraps a migration, so a long one can commit in batches of its own, and none wraps a
 migration together with its record. A process that dies between the two runs the migration again
-on the next start, so it has to survive meeting its own work already done. Nor does anything keep
-two processes calling `Apply` at once apart, so call it from one.
+on the next start, so it has to be safe to run twice.
+
+A table named `data_migrations` that you already keep with a text `name` as its key and an
+`applied_at` timestamp is taken as it stands: `Apply` creates the table only when it is missing, and
+skips every name already in it.
 
 ### Elsewhere
 

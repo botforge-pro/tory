@@ -2,6 +2,7 @@ package tory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -49,21 +50,46 @@ func (m *DataMigrations) Add(name string, run DataMigrationFunc) {
 // data_migrations table, and records each one as it finishes. The first that
 // fails stops the run: it stays unrecorded, the ones after it do not start,
 // and its error is returned. Apply returns every migration recorded by the
-// time it stopped. Call it at start-up, from one process and before anything
-// else uses db: it loads tory's own queries into db, and nothing keeps two
-// runs at once apart.
-func (m *DataMigrations) Apply(ctx context.Context, db Tory) ([]AppliedDataMigration, error) {
+// time it stopped.
+//
+// A run holds a database lock from start to end, so a second process calling
+// Apply at the same time waits for the first and then skips what it recorded.
+// The lock lives on one connection of the pool, held for the whole run; a pool
+// that cannot spare it leaves migrations that use the same pool waiting
+// forever.
+func (m *DataMigrations) Apply(ctx context.Context, t Tory) (applied []AppliedDataMigration, err error) {
 	if err := m.check(); err != nil {
 		return nil, err
 	}
+	db := New(t.pool)
 	if err := db.Load(sqlFiles); err != nil {
 		return nil, err
 	}
-	if err := db.Exec(ctx, "tory.create-table-data-migrations", nil); err != nil {
+
+	conn, err := db.pool.Acquire(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("data migrations: acquire a connection: %w", err)
+	}
+	defer conn.Release()
+	if _, err := execReturning(ctx, db, conn, "tory.lock-data-migrations", nil); err != nil {
+		return nil, err
+	}
+	defer func() {
+		ctx := context.WithoutCancel(ctx)
+		if _, unlockErr := execReturning(ctx, db, conn, "tory.unlock-data-migrations", nil); unlockErr != nil {
+			err = errors.Join(err, unlockErr, conn.Conn().Close(ctx))
+		}
+	}()
+
+	return m.applyLocked(ctx, db, conn)
+}
+
+func (m *DataMigrations) applyLocked(ctx context.Context, db Tory, conn runner) ([]AppliedDataMigration, error) {
+	if _, err := execReturning(ctx, db, conn, "tory.create-table-data-migrations", nil); err != nil {
 		return nil, err
 	}
 
-	applied, err := db.Select[AppliedDataMigration](ctx, "tory.list-data-migrations", nil)
+	applied, err := selectRows[AppliedDataMigration](ctx, db, conn, "tory.list-data-migrations", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +114,7 @@ func (m *DataMigrations) Apply(ctx context.Context, db Tory) ([]AppliedDataMigra
 			return applied, fmt.Errorf("data migration `%s`: %w", step.name, err)
 		}
 
-		recorded, err := db.Get[AppliedDataMigration](ctx, "tory.record-data-migration", Args{"name": step.name})
+		recorded, err := getRow[AppliedDataMigration](ctx, db, conn, "tory.record-data-migration", Args{"name": step.name})
 		if err != nil {
 			return applied, fmt.Errorf("record data migration `%s`: %w", step.name, err)
 		}
