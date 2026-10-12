@@ -24,9 +24,11 @@ number. Entries start at 2.0.0, the first release of the current API.
   data that one SQL statement cannot make. The
   [Readme](https://github.com/botforge-pro/tory#data-migrations) shows how to write and run them.
 
-  Upgrading asks nothing of you unless your database already has a table named `data_migrations`.
-  If it keeps a text `name` as its key and an `applied_at` timestamp, it is taken over as it stands.
-  If it holds anything else, rename it before your first call to `Apply`.
+  Upgrading changes nothing until you call the new `DataMigrations.Apply`, which creates a
+  `data_migrations` table on its first run. If your database already has a table of that name, look
+  at it first. One with a text `name` as its key and an `applied_at` timestamp is used as it stands,
+  and every name in it counts as a migration already run. Any other shape makes `Apply` fail, so
+  rename that table before the first call.
 
 ## [2.3.0] - 2026-09-10
 

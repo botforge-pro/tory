@@ -31,6 +31,8 @@ type DataMigrations struct {
 	steps []dataMigration
 }
 
+const unlockTimeout = 5 * time.Second
+
 type dataMigration struct {
 	name string
 	run  DataMigrationFunc
@@ -75,7 +77,11 @@ func (m *DataMigrations) Apply(ctx context.Context, t Tory) (applied []AppliedDa
 		return nil, err
 	}
 	defer func() {
-		ctx := context.WithoutCancel(ctx)
+		if conn.Conn().IsClosed() {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), unlockTimeout)
+		defer cancel()
 		if _, unlockErr := execReturning(ctx, db, conn, "tory.unlock-data-migrations", nil); unlockErr != nil {
 			err = errors.Join(err, unlockErr, conn.Conn().Close(ctx))
 		}

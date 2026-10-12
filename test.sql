@@ -40,7 +40,11 @@ select count(*) from test_savepoint;
 drop table if exists data_migrations;
 
 -- name: test-count-advisory-lock-waiters
-select count(*) from pg_locks where locktype = 'advisory' and not granted;
+select count(*)
+from pg_locks
+where locktype = 'advisory'
+  and not granted
+  and database = (select oid from pg_database where datname = current_database());
 
 -- name: test-create-data-migrations-refusing-a-name
 create table data_migrations (
