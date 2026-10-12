@@ -22,12 +22,13 @@ number. Entries start at 2.0.0, the first release of the current API.
 
 - `DataMigrations.Apply` no longer hangs on a pool of one connection. 2.4.0 held its lock on a
   connection taken from the pool for the whole run, so with `pool_max_conns=1` the first migration
-  that queried through the same pool waited for a connection forever. Only 2.4.0 is affected, and
-  only where a migration needs every connection of the pool. The lock now sits on a pool of one
-  connection that `Apply` builds from your pool's configuration, `BeforeConnect` and `AfterConnect`
-  included, and closes when it returns, so for that time your program holds one connection to the
-  database more than its pool does. Where the server refuses that connection, `Apply` returns the
-  error before any migration runs.
+  that queried through the same pool waited for a connection forever, as did any migration holding
+  all of a larger pool's connections at once. Only 2.4.0 is affected. The lock now sits on a pool of
+  one connection that `Apply` builds from your pool's configuration and closes when it returns. Your
+  `BeforeConnect` and `AfterConnect` hooks run for that connection too, and for that time your
+  program holds one connection to the database more than its pool does: leave room for it under
+  the server's connection limit. Where the server refuses it, `Apply` returns the error before any
+  migration runs.
 
 ## [2.4.0] - 2026-10-12
 
