@@ -1,9 +1,6 @@
 -- name: tory.lock-data-migrations
 SELECT pg_advisory_lock(hashtext('tory.data_migrations'));
 
--- name: tory.unlock-data-migrations
-SELECT pg_advisory_unlock(hashtext('tory.data_migrations'));
-
 -- name: tory.create-table-data-migrations
 CREATE TABLE IF NOT EXISTS data_migrations (
     name TEXT NOT NULL PRIMARY KEY,

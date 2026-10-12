@@ -3,10 +3,12 @@ package tory
 import (
 	"context"
 	"errors"
+	"fmt"
 	syncatomic "sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -176,6 +178,28 @@ func TestDataMigrations_AFaultyListRunsNothing(t *testing.T) {
 			assert.Zero(t, runs)
 		})
 	}
+}
+
+func TestDataMigrations_RunOnAPoolOfOneConnection(t *testing.T) {
+	pool, err := pgxpool.New(t.Context(), "postgres://tory:tory@localhost:5432?pool_max_conns=1")
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	db := New(pool)
+	require.NoError(t, db.Load(testFiles))
+	require.NoError(t, db.Exec(t.Context(), "test-drop-data-migrations", nil))
+	m := NewDataMigrations(DataMigrationsOptions{})
+	m.Add("queries the pool", func(ctx context.Context) (string, error) {
+		sum, err := db.Scalar[int](ctx, "test-sum", Args{"x": 1, "y": 2})
+		return fmt.Sprintf("summed %d", sum), err
+	})
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	applied, err := m.Apply(ctx, db)
+
+	require.NoError(t, err,
+		"the lock took the pool's only connection, and the migration waited for it until the deadline")
+	assert.Len(t, applied, 1)
 }
 
 func dbWithoutDataMigrations(t *testing.T) Tory {

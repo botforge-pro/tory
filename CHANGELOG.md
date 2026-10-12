@@ -16,6 +16,16 @@ can still ask something of you, up to and including reading your migrations agai
 schema. What a release asks is written in its own entry, so read the entry rather than judge by the
 number. Entries start at 2.0.0, the first release of the current API.
 
+## [2.4.1] - 2026-10-12
+
+### Fixed
+
+- `DataMigrations.Apply` no longer hangs on a pool of one connection. 2.4.0 held its lock on a
+  connection taken from the pool for the whole run, so with `pool_max_conns=1` the first migration
+  that queried through the same pool waited for a connection forever. The lock now sits on a
+  connection of its own, opened beside the pool with the pool's settings, which means `Apply` needs
+  one connection to the database more than the pool holds. Upgrading asks nothing else of you.
+
 ## [2.4.0] - 2026-10-12
 
 ### Added
@@ -232,6 +242,7 @@ import "github.com/teamin-pro/tory/v2" // 2.0.0; see 2.1.0 above for where it li
   `ExecReturning`. Each is now a method of the same name on the connection and on the transaction,
   so the replacement is mechanical.
 
+[2.4.1]: https://github.com/botforge-pro/tory/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/botforge-pro/tory/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/botforge-pro/tory/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/botforge-pro/tory/compare/v2.1.0...v2.2.0

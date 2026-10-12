@@ -195,9 +195,9 @@ can therefore rely on everything added before it having finished. A blank or rep
 runs too.
 
 A run holds a database lock from start to end, so two instances starting during one deploy do not
-both run a migration: the second waits, then skips what the first recorded. The lock keeps one
-connection of the pool for the whole run, so a pool of one connection leaves a migration that
-queries through it waiting forever.
+both run a migration: the second waits, then skips what the first recorded. The lock sits on a
+connection `Apply` opens for itself beside the pool, so the migrations have every connection of the
+pool to themselves.
 
 A name is recorded once and for good, so a migration is never renamed after it has run, and its
 name is never given to another. There is no baseline: a fresh database runs every migration, and
