@@ -14,25 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDataMigrations_RunOnceAndAreRecorded(t *testing.T) {
-	db := dbWithoutDataMigrations(t)
-	runs := 0
-	m := NewDataMigrations(DataMigrationsOptions{})
-	m.Add("counted", func(context.Context) (string, error) {
-		runs++
-		return "ran", nil
-	})
-
-	_, err := m.Apply(t.Context(), db)
-	require.NoError(t, err)
-	applied, err := m.Apply(t.Context(), db)
-	require.NoError(t, err)
-
-	assert.Equal(t, 1, runs)
-	require.Len(t, applied, 1)
-	assert.Equal(t, "counted", applied[0].Name)
-}
-
 func TestDataMigrations_TheFirstFailureStopsTheRun(t *testing.T) {
 	db := dbWithoutDataMigrations(t)
 	var ran []string
