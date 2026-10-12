@@ -2,11 +2,10 @@ package tory
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // DataMigrationFunc does one data migration and says in a line what it did.
@@ -33,8 +32,6 @@ type DataMigrations struct {
 	steps []dataMigration
 }
 
-const closeTimeout = 5 * time.Second
-
 type dataMigration struct {
 	name string
 	run  DataMigrationFunc
@@ -58,10 +55,10 @@ func (m *DataMigrations) Add(name string, run DataMigrationFunc) {
 //
 // A run holds a database lock from start to end, so a second process calling
 // Apply at the same time waits for the first and then skips what it recorded.
-// The lock lives on a connection of its own, opened beside the pool with the
-// pool's settings and closed when the run ends, so it takes no connection the
-// migrations need, however small the pool.
-func (m *DataMigrations) Apply(ctx context.Context, t Tory) (applied []AppliedDataMigration, err error) {
+// The lock lives on a pool of one connection of its own, built from the same
+// configuration as t's pool, hooks included, and closed when the run ends, so
+// it takes no connection the migrations need, however small their pool.
+func (m *DataMigrations) Apply(ctx context.Context, t Tory) ([]AppliedDataMigration, error) {
 	if err := m.check(); err != nil {
 		return nil, err
 	}
@@ -70,17 +67,20 @@ func (m *DataMigrations) Apply(ctx context.Context, t Tory) (applied []AppliedDa
 		return nil, err
 	}
 
-	conn, err := pgx.ConnectConfig(ctx, t.pool.Config().ConnConfig.Copy())
+	cfg := t.pool.Config()
+	cfg.MaxConns = 1
+	cfg.MinConns = 0
+	cfg.MinIdleConns = 0
+	lockPool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("data migrations: open a pool for the lock: %w", err)
+	}
+	defer lockPool.Close()
+	conn, err := lockPool.Acquire(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("data migrations: open a connection for the lock: %w", err)
 	}
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
-		defer cancel()
-		if closeErr := conn.Close(ctx); closeErr != nil {
-			err = errors.Join(err, fmt.Errorf("data migrations: close the lock's connection: %w", closeErr))
-		}
-	}()
+	defer conn.Release()
 	if _, err := execReturning(ctx, db, conn, "tory.lock-data-migrations", nil); err != nil {
 		return nil, err
 	}

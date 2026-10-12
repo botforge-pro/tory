@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -181,7 +182,14 @@ func TestDataMigrations_AFaultyListRunsNothing(t *testing.T) {
 }
 
 func TestDataMigrations_RunOnAPoolOfOneConnection(t *testing.T) {
-	pool, err := pgxpool.New(t.Context(), "postgres://tory:tory@localhost:5432?pool_max_conns=1")
+	cfg, err := pgxpool.ParseConfig("postgres://tory:tory@localhost:5432?pool_max_conns=1")
+	require.NoError(t, err)
+	var connected syncatomic.Int32
+	cfg.AfterConnect = func(context.Context, *pgx.Conn) error {
+		connected.Add(1)
+		return nil
+	}
+	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 	db := New(pool)
@@ -200,6 +208,54 @@ func TestDataMigrations_RunOnAPoolOfOneConnection(t *testing.T) {
 	require.NoError(t, err,
 		"the lock took the pool's only connection, and the migration waited for it until the deadline")
 	assert.Len(t, applied, 1)
+	assert.Equal(t, int32(2), connected.Load(),
+		"the lock's connection skipped the pool's AfterConnect, which may set the search_path or "+
+			"role the data_migrations table is to be found under")
+}
+
+func TestDataMigrations_ARunCancelledWhileWaitingLeavesNoLockBehind(t *testing.T) {
+	db := dbWithoutDataMigrations(t)
+	release := make(chan struct{})
+	started := make(chan struct{})
+	holder := NewDataMigrations(DataMigrationsOptions{})
+	holder.Add("holds the lock", func(context.Context) (string, error) {
+		close(started)
+		<-release
+		return "", nil
+	})
+	held := make(chan error, 1)
+	go func() {
+		_, err := holder.Apply(t.Context(), db)
+		held <- err
+	}()
+	<-started
+
+	runs := 0
+	waiter := NewDataMigrations(DataMigrationsOptions{})
+	waiter.Add("waits", func(context.Context) (string, error) {
+		runs++
+		return "", nil
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	waited := make(chan error, 1)
+	go func() {
+		_, err := waiter.Apply(ctx, db)
+		waited <- err
+	}()
+	require.Eventually(t, func() bool {
+		waiting, err := db.Scalar[int](t.Context(), "test-count-advisory-lock-waiters", nil)
+		return err == nil && waiting == 1
+	}, 5*time.Second, 10*time.Millisecond, "the second run never queued behind the first")
+	cancel()
+	require.ErrorIs(t, <-waited, context.Canceled)
+	close(release)
+	require.NoError(t, <-held)
+
+	after, err := waiter.Apply(t.Context(), db)
+
+	require.NoError(t, err, "the cancelled wait left the lock taken")
+	assert.Equal(t, 1, runs)
+	assert.Len(t, after, 2)
 }
 
 func dbWithoutDataMigrations(t *testing.T) Tory {

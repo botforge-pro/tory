@@ -196,8 +196,8 @@ runs too.
 
 A run holds a database lock from start to end, so two instances starting during one deploy do not
 both run a migration: the second waits, then skips what the first recorded. The lock sits on a
-connection `Apply` opens for itself beside the pool, so the migrations have every connection of the
-pool to themselves.
+pool of one connection that `Apply` builds from your pool's configuration, its hooks included, and
+closes when it returns, so the migrations have every connection of your pool to themselves.
 
 A name is recorded once and for good, so a migration is never renamed after it has run, and its
 name is never given to another. There is no baseline: a fresh database runs every migration, and
